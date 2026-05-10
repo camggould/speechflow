@@ -1,0 +1,54 @@
+# Built binary
+/speechflow
+/speechflow-*
+
+# Goreleaser / release build output
+/dist/
+
+# UI build output (regenerated; embedded into binary at build)
+/ui/dist/
+/ui/.vite/
+/ui/.tsc-cache/
+
+# Embedded UI assets: ignore built content but keep the placeholder so
+# go:embed has a directory to point at on a fresh checkout.
+/internal/uifs/dist/*
+!/internal/uifs/dist/.gitkeep
+
+# UI dependencies
+/ui/node_modules/
+
+# Go build / test output
+/vendor/
+coverage.out
+coverage.html
+coverage.txt
+*.out
+*.test
+
+# Local SQLite databases produced during development / testing
+# (the production DB lives in ~/.speechflow/, never in the repo)
+*.db
+*.db-wal
+*.db-shm
+
+# Editors / IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Local environment
+.env
+.env.local
+
+# Agent scratch directories
+.claude/worktrees/

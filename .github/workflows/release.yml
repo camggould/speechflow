@@ -1,0 +1,143 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. v0.1.0). Required for manual runs."
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+# CGO is required (we use the mattn/go-sqlite3 driver with the sqlite_fts5
+# build tag). Cross-compiling CGO from a single runner is fragile, so we
+# build each (os,arch) on its native runner, then aggregate everything into
+# one GitHub Release on a final job.
+
+jobs:
+  build:
+    name: ${{ matrix.target.os }}-${{ matrix.target.arch }}
+    runs-on: ${{ matrix.target.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { os: linux,  arch: amd64, runner: ubuntu-latest }
+          - { os: linux,  arch: arm64, runner: ubuntu-22.04-arm }
+          - { os: darwin, arch: amd64, runner: macos-13 }
+          - { os: darwin, arch: arm64, runner: macos-14 }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # goreleaser needs full history for changelog
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Build embedded UI
+        run: make ui
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        env:
+          DISPATCH_VERSION: ${{ inputs.version }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            printf 'version=%s\n' "$DISPATCH_VERSION" >> "$GITHUB_OUTPUT"
+          else
+            printf 'version=%s\n' "$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run goreleaser (single target)
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          # `release --split` builds and packages this target only, writing
+          # state under dist/ for the final `release --merge` job.
+          args: release --clean --split --skip=announce
+        env:
+          GOOS: ${{ matrix.target.os }}
+          GOARCH: ${{ matrix.target.arch }}
+          CGO_ENABLED: "1"
+          GORELEASER_CURRENT_TAG: ${{ steps.ver.outputs.version }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target.os }}-${{ matrix.target.arch }}
+          path: dist/
+          retention-days: 7
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: dist-*
+
+      - name: Restore split-dist layout
+        shell: bash
+        run: |
+          # `goreleaser continue --merge` expects each split build under
+          # dist/<target>/. The artifact download placed them at
+          # dist/dist-<os>-<arch>/. Rename in place.
+          set -eu
+          mkdir -p merged
+          for d in dist/dist-*; do
+            target="${d#dist/dist-}"
+            mkdir -p "merged/${target}"
+            shopt -s dotglob
+            mv "$d"/* "merged/${target}/" || true
+          done
+          rm -rf dist
+          mv merged dist
+          ls -laR dist
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        env:
+          DISPATCH_VERSION: ${{ inputs.version }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            printf 'version=%s\n' "$DISPATCH_VERSION" >> "$GITHUB_OUTPUT"
+          else
+            printf 'version=%s\n' "$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Merge & publish with goreleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: continue --merge
+        env:
+          GORELEASER_CURRENT_TAG: ${{ steps.ver.outputs.version }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
