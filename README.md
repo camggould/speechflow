@@ -4,8 +4,6 @@ A CLI tool (with an embedded web UI) that lets an LLM agent structure a spoken o
 
 The CLI is deterministic. The LLM does the judgment (what is a concept, when is a curiosity resolved, what quote to attach). `speechflow` just stores it and renders it.
 
-> Status: early scaffolding. The CLI surface, HTTP API, and UI behavior described here are the build contract — code is being built to match.
-
 ---
 
 ## Install
