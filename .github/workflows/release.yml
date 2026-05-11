@@ -16,8 +16,9 @@ permissions:
 
 # CGO is required (we use the mattn/go-sqlite3 driver with the sqlite_fts5
 # build tag). Cross-compiling CGO from a single runner is fragile, so we
-# build each (os,arch) on its native runner, then aggregate everything into
-# one GitHub Release on a final job.
+# build each (os,arch) on its native runner. Each matrix job produces
+# its own tarball + .sha256, uploads them as artifacts, and a final
+# `release` job downloads everything and publishes the GitHub Release.
 
 jobs:
   build:
@@ -34,7 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # goreleaser needs full history for changelog
+          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:
@@ -67,24 +68,54 @@ jobs:
             printf 'version=%s\n' "$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Run goreleaser (single target)
-        uses: goreleaser/goreleaser-action@v6
-        with:
-          version: "~> v2"
-          # `release --split` builds and packages this target only, writing
-          # state under dist/ for the final `release --merge` job.
-          args: release --clean --split --skip=announce
+      - name: Build binary
+        shell: bash
         env:
+          VERSION: ${{ steps.ver.outputs.version }}
           GOOS: ${{ matrix.target.os }}
           GOARCH: ${{ matrix.target.arch }}
           CGO_ENABLED: "1"
-          GORELEASER_CURRENT_TAG: ${{ steps.ver.outputs.version }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          BINARY="speechflow-${VERSION}-${GOOS}-${GOARCH}"
+          COMMIT=$(git rev-parse --short HEAD)
+          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          LDFLAGS="-s -w \
+            -X 'github.com/camggould/speechflow/internal/cli.buildVersion=${VERSION}' \
+            -X 'github.com/camggould/speechflow/internal/cli.buildCommit=${COMMIT}' \
+            -X 'github.com/camggould/speechflow/internal/cli.buildDate=${DATE}'"
+          go build -trimpath -tags sqlite_fts5 -ldflags="${LDFLAGS}" -o "${BINARY}" ./cmd/speechflow
+          ls -la "${BINARY}"
+          file "${BINARY}" || true
+
+      - name: Package
+        shell: bash
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          GOOS: ${{ matrix.target.os }}
+          GOARCH: ${{ matrix.target.arch }}
+        run: |
+          set -euo pipefail
+          BINARY="speechflow-${VERSION}-${GOOS}-${GOARCH}"
+          TARBALL="${BINARY}.tar.gz"
+          tar -czf "${TARBALL}" "${BINARY}"
+          # install.sh consumes per-file `.sha256` written in
+          # `shasum -c` format (`HASH  FILENAME`). shasum is present on
+          # macOS runners; sha256sum on Linux. Both write the same format.
+          if command -v shasum >/dev/null 2>&1; then
+            shasum -a 256 "${TARBALL}" > "${TARBALL}.sha256"
+          else
+            sha256sum "${TARBALL}" > "${TARBALL}.sha256"
+          fi
+          cat "${TARBALL}.sha256"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: dist-${{ matrix.target.os }}-${{ matrix.target.arch }}
-          path: dist/
+          name: assets-${{ matrix.target.os }}-${{ matrix.target.arch }}
+          path: |
+            speechflow-${{ steps.ver.outputs.version }}-${{ matrix.target.os }}-${{ matrix.target.arch }}.tar.gz
+            speechflow-${{ steps.ver.outputs.version }}-${{ matrix.target.os }}-${{ matrix.target.arch }}.tar.gz.sha256
+          if-no-files-found: error
           retention-days: 7
 
   release:
@@ -92,37 +123,14 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
       - uses: actions/download-artifact@v4
         with:
-          path: dist
-          pattern: dist-*
+          path: assets
+          pattern: assets-*
+          merge-multiple: true
 
-      - name: Restore split-dist layout
-        shell: bash
-        run: |
-          # `goreleaser continue --merge` expects each split build under
-          # dist/<target>/. The artifact download placed them at
-          # dist/dist-<os>-<arch>/. Rename in place.
-          set -eu
-          mkdir -p merged
-          for d in dist/dist-*; do
-            target="${d#dist/dist-}"
-            mkdir -p "merged/${target}"
-            shopt -s dotglob
-            mv "$d"/* "merged/${target}/" || true
-          done
-          rm -rf dist
-          mv merged dist
-          ls -laR dist
+      - name: List artifacts
+        run: ls -la assets/
 
       - name: Resolve version
         id: ver
@@ -137,11 +145,24 @@ jobs:
             printf 'version=%s\n' "$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Merge & publish with goreleaser
-        uses: goreleaser/goreleaser-action@v6
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          version: "~> v2"
-          args: continue --merge
-        env:
-          GORELEASER_CURRENT_TAG: ${{ steps.ver.outputs.version }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: ${{ steps.ver.outputs.version }}
+          name: ${{ steps.ver.outputs.version }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            assets/*.tar.gz
+            assets/*.tar.gz.sha256
+          body: |
+            Pre-built binaries for linux/darwin × amd64/arm64.
+
+            Install:
+            ```sh
+            curl -fsSL https://raw.githubusercontent.com/camggould/speechflow/main/install.sh | sh
+            ```
+
+            Verify with the matching `.sha256` next to each tarball.
