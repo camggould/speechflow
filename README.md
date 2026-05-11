@@ -8,6 +8,32 @@ The CLI is deterministic. The LLM does the judgment (what is a concept, when is 
 
 ---
 
+## Install
+
+One-liner — detects OS/arch, downloads the matching pre-built binary from the latest GitHub Release, verifies the SHA-256 checksum, and installs to `/usr/local/bin` (falling back to `~/.local/bin` if that's not writable):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/camggould/speechflow/main/install.sh | sh
+```
+
+Optional flags (pass via `sh -s --`):
+
+```sh
+curl -fsSL .../install.sh | sh -s -- --version v0.1.0       # pin a specific release
+curl -fsSL .../install.sh | sh -s -- --prefix ~/.local/bin  # override install dir
+```
+
+After install:
+
+```sh
+speechflow init               # one-time: create ~/.speechflow/ and run migrations
+speechflow serve --open       # start the local UI + JSON API at 127.0.0.1:7777
+```
+
+The binary ships everything it needs — UI is embedded, SQLite is statically linked, no runtime deps beyond libc.
+
+---
+
 ## Mental model
 
 ```
@@ -418,11 +444,7 @@ make ui-dev         # in one terminal — Vite at :5173
 ./speechflow serve  # in another  — API at :7777; UI proxy lives in vite.config.ts
 ```
 
-Installation (after first release):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/camggould/speechflow/main/install.sh | sh
-```
+For pre-built binary installation, see [Install](#install) at the top of this README.
 
 ---
 
