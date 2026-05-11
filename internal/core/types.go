@@ -169,9 +169,18 @@ type Transcript struct {
 	Spans []TranscriptSpan `json:"spans"`
 }
 
-// SessionDetail is the response shape for GET /api/v1/sessions/:id.
+// SessionDetail is the response shape for GET /api/v1/sessions/:id. The
+// embedded Session is marshalled inline so the JSON object is flat
+// (id, title, ..., roots, iterations), matching the UI's type contract.
 type SessionDetail struct {
-	Session    Session     `json:"session"`
+	Session
 	Roots      []Root      `json:"roots"`
 	Iterations []Iteration `json:"iterations"`
+}
+
+// IterationDetail is the response shape for GET /api/v1/iterations/:id.
+// The embedded Iteration is marshalled inline (id, title, ..., roots).
+type IterationDetail struct {
+	Iteration
+	Roots []Root `json:"roots"`
 }

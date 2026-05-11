@@ -93,6 +93,13 @@ func (a *api) getSession(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// flattenIterationDetail wraps an Iteration with the roots that were
+// in scope at iteration end. JSON marshals to a flat object thanks to the
+// embedded Iteration in core.IterationDetail.
+func flattenIterationDetail(it *core.Iteration, roots []core.Root) core.IterationDetail {
+	return core.IterationDetail{Iteration: *it, Roots: roots}
+}
+
 func (a *api) sessionCoverage(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if _, err := a.store.GetSession(id); err != nil {
@@ -148,10 +155,7 @@ func (a *api) getIteration(w http.ResponseWriter, r *http.Request) {
 			filtered = append(filtered, r)
 		}
 	}
-	writeJSON(w, http.StatusOK, struct {
-		Iteration *core.Iteration `json:"iteration"`
-		Roots     []core.Root     `json:"roots"`
-	}{Iteration: it, Roots: filtered})
+	writeJSON(w, http.StatusOK, flattenIterationDetail(it, filtered))
 }
 
 func (a *api) getIterationGraph(w http.ResponseWriter, r *http.Request) {
