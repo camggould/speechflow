@@ -40,10 +40,12 @@ You practice a speech across many **iterations** of the same **session**. Each i
 | `branches_from` | child → parent   | The child concept/curiosity developed from the parent.        |
 | `references`    | from → to        | The from-node leaned on the to-node without being a child of it. |
 | `returns_to`    | from → to        | The speaker explicitly looped back to an earlier idea.        |
+| `supports`      | evidence → claim | The from-node provides evidence, an example, or an analogy underpinning the to-node's claim. Surfaces structurally as "this claim has support." |
+| `contrasts`     | from → to        | The from-node pushes against the to-node — steel-manning, "but X", or self-contradiction. |
 
 ### Tags
 
-Free-form strings on nodes. Conventional tags: `key`, `tangent`, `evidence`, `example`, `definition`, `pivot`. The UI styles `key` (solid borders) and `tangent` (dashed borders) specially; other tags render as chips.
+Tags are the agent's primary instrument for annotating speech *quality*; the **Speech Health** panel groups them. Canonical strengths: `key`, `hook`, `signpost`, `exposition`, `analogy`, `example`, `callback`, `definition`, `pivot`, `closing`. Canonical weaknesses: `tangent`, `unsupported-claim`, `dropped-thread`, `filler`, `abrupt-transition`, `contradiction`. Anything else is rendered as a chip but doesn't appear in the dashboard. Full when-to-apply guidance is in `AGENTS.md` §4.
 
 ---
 
@@ -109,7 +111,7 @@ CREATE TABLE edges (
     iteration_id TEXT NOT NULL REFERENCES iterations(id) ON DELETE CASCADE,
     from_node    TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
     to_node      TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
-    kind         TEXT NOT NULL CHECK (kind IN ('branches_from','references','returns_to')),
+    kind         TEXT NOT NULL CHECK (kind IN ('branches_from','references','returns_to','supports','contrasts')),
     created_at   TEXT NOT NULL
 );
 
@@ -263,7 +265,7 @@ type Edge = {
   iteration_id: string;
   from_node: string;
   to_node: string;
-  kind: "branches_from" | "references" | "returns_to";
+  kind: "branches_from" | "references" | "returns_to" | "supports" | "contrasts";
   created_at: string;
 };
 

@@ -1,158 +1,305 @@
 ---
 name: speechflow
-description: Use speechflow to turn a spoken (or written) practice conversation into a concept graph — ideas, claims, and curiosities branching off the topics the user said they wanted to cover. Invoke when the user is rehearsing a talk, dictating a draft, brainstorming aloud, or any time the user wants their reasoning shaped into a reviewable structure rather than a flat transcript. Records via the speechflow CLI.
+description: Use speechflow to turn a speech transcript (or a live spoken conversation) into a concept graph with rhetorical-quality annotations — declared topics, ideas, supporting evidence, takeaways, and flagged weaknesses. Invoke when the user hands you a transcript and wants it evaluated, when they're rehearsing a talk aloud and want it captured, or when they ask to see how their reasoning was structured. Records via the speechflow CLI; produces a local web UI for review.
 ---
 
 # speechflow skill
 
-speechflow is a local CLI (with an embedded web UI) that lets an LLM agent
-record a spoken conversation as a typed graph: **sessions** (a talk you're
-working on), made of **iterations** (one rehearsal each), made of **nodes**
-(`root_ref`, `concept`, `curiosity`, `takeaway`) and **edges**
-(`branches_from`, `references`, `returns_to`). The user declares roots up
-front ("today I want to cover pricing, roadmap, hiring"); you record the
-rest as the conversation unfolds. After the fact, the user can replay any
-iteration in the UI and see structural coverage of their declared topics
-plus side-by-side comparison of intended roots vs. actual takeaways.
+speechflow is a local CLI with an embedded web UI. It models a speech as a
+typed graph (roots, concepts, curiosities, takeaways) with edges
+(`branches_from`, `references`, `returns_to`, `supports`, `contrasts`) and
+a canonical vocabulary of quality tags. **You** read the transcript and
+make the structural calls; speechflow records them deterministically and
+renders them in a graph + transcript + health dashboard.
 
-The CLI is deterministic. **You** do the judgment — what's a concept,
-what's a curiosity, when something is resolved. speechflow just stores it.
+This skill handles two modes:
 
-Use this skill when:
-- the user is rehearsing or dictating a talk, pitch, lecture, or essay
-- the user wants their reasoning shaped into a reviewable map, not a
-  flat transcript
-- the user wants to come back across multiple rehearsals and see which
-  declared topics they consistently hit (or miss)
-- the user says something like "let's record this", "let me practise out
-  loud", "I want to map this out as I think"
+- **Transcript mode** (most common) — the user hands you a full
+  transcript and wants it evaluated. You read it end-to-end first, plan
+  the structure, then populate the graph in one pass.
+- **Live mode** — the user is speaking aloud and you record as they go.
+  Same vocabulary, different pacing. Covered in `AGENTS.md` §1.
 
-## Detect whether speechflow is installed
+---
 
-`speechflow version` should print a version string. If the command is
-missing, suggest installing it:
+## Install
+
+Check first:
+
+```sh
+speechflow version
+```
+
+If missing, install and initialise (ask the user before running):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/camggould/speechflow/main/install.sh | sh
+speechflow init
 ```
 
-Then run `speechflow init` once to create `~/.speechflow/` and run
-migrations. Don't proactively install on the user's machine; ask first.
+`speechflow init` creates `~/.speechflow/` and runs schema migrations.
+One-time.
 
-## The shape of the work
+---
 
-speechflow has a strict three-phase loop. Stick to it; don't improvise.
+## Transcript workflow
 
-1. **Session start** — pick or create a session, declare roots (if the
-   user named topics), start an iteration.
-2. **During the conversation** — for each utterance: append transcript,
-   then optionally add nodes / edges / tags / resolve curiosities.
-3. **Session end** — close the iteration. Don't score it.
+The user gives you a transcript — paste, file, dictation result. Follow
+this order. Skipping the planning step (1) and going straight to nodes
+produces a graph that misses structure.
 
-Full prescriptive contract: see `AGENTS.md` in the speechflow repo. Read
-it before driving the CLI for the first time.
+### 1. Read the transcript end-to-end first
 
-## Minimum viable session
+Before any CLI call: scan the full text. You're looking for:
+
+- **Declared topics** — the speaker's explicit "I want to cover X, Y, Z."
+  These become **roots**.
+- **The arc** — opening hook, exposition, claim chains, examples,
+  curiosities, callbacks, closing.
+- **Structural moments** — pivots, signposts, transitions, returns.
+- **Weaknesses** — claims without evidence, dropped threads, abrupt
+  jumps, tangents, contradictions.
+
+Don't write yet. Think.
+
+### 2. Create the session and declare roots
 
 ```sh
-# once per topic
-speechflow session new --title "Q4 review"
-speechflow root add "Pricing" "Roadmap" "Hiring"
+speechflow session new --title "<short title for the talk>" \
+    --description "<optional one-line summary>"
+# returns {"id":"<session-slug>","title":"...",...}
+```
 
-# once per rehearsal
-speechflow iteration start --title "Rehearsal 1"
+Then declare every root the speaker explicitly named:
 
-# per utterance
-speechflow transcript append "On pricing — we're moving to seat-based tiers."
-speechflow node touch-root pricing
-speechflow node add concept --title "Move to seat-based tiered pricing" --tag key
+```sh
+speechflow root add "First topic" "Second topic" "Third topic"
+```
 
-# wrap up
+If the speaker didn't declare roots explicitly, infer 2–4 from the
+opening/structure (e.g. "the talk has three pillars: …"). Don't invent
+roots that aren't in the speech.
+
+### 3. Start the iteration and set the transcript
+
+```sh
+speechflow iteration start --title "Initial evaluation"
+# returns {"id":"it_<hex>",...} — read and remember this opaque ID
+```
+
+For a static transcript, set the whole text once:
+
+```sh
+speechflow transcript set --file /path/to/transcript.txt
+```
+
+(If the transcript isn't a file, write it to a temp file first — the CLI
+takes `--file`, not stdin.)
+
+### 4. Walk the transcript and create nodes
+
+Iterate through the text in order. For each substantive moment, create a
+node and attach a `--span S,E` (character offsets into the transcript).
+Compute spans by searching the transcript text for the relevant
+substring; `str.find()`-equivalent is fine.
+
+For each declared root, when the speaker first lands on it:
+
+```sh
+speechflow node touch-root <root-slug> --span <S>,<E>
+```
+
+For each idea the speaker introduces:
+
+```sh
+speechflow node add concept \
+    --title "<your short paraphrase>" \
+    --quote "<verbatim load-bearing fragment>" \
+    --span <S>,<E> \
+    [--from <parent-slug>] \
+    [--tag key]
+```
+
+`--from` parents the new concept under whichever node it developed from.
+For the first concept of a chain, point `--from` at the relevant
+`touch-<root-slug>` node so the structural coverage algorithm can reach
+the root.
+
+For each open question the speaker raises but doesn't resolve:
+
+```sh
+speechflow node add curiosity \
+    --from <parent-concept-slug> \
+    --title "<the question>" \
+    --quote "<the hedge>" \
+    --span <S>,<E>
+```
+
+When a later concept clearly resolves a curiosity:
+
+```sh
+speechflow node resolve <curiosity-slug> --by <resolver-slug>
+```
+
+At the end of each coherent chain, create a takeaway — the synthesis of
+what the listener actually walked away with:
+
+```sh
+speechflow node add takeaway \
+    --from <leaf-concept-slug> \
+    --root <intended-root-slug> \
+    --title "<one-sentence synthesis>"
+```
+
+One takeaway per chain. Skip it if you can't articulate a synthesis
+crisper than the chain itself.
+
+### 5. Add non-parent edges
+
+Beyond the `branches_from` edges that `--from` creates, attach:
+
+```sh
+speechflow edge add <evidence-slug> <claim-slug>  --kind supports
+speechflow edge add <a-slug> <b-slug>             --kind references
+speechflow edge add <callback-slug> <earlier-slug> --kind returns_to
+speechflow edge add <new-slug> <prior-slug>       --kind contrasts
+```
+
+Use `supports` aggressively — every evidence/example/analogy under a
+claim should have one. Without it, the Health panel will flag the claim
+as `unsupported-claim` during the end-of-iteration sweep.
+
+### 6. Tag for the Speech Health panel
+
+Apply tags at node creation (`--tag <tag>`) or after the fact
+(`speechflow node tag <slug> <tag>`). Canonical vocabulary:
+
+| Strengths (apply when you see it)                                | Weaknesses (apply when you detect the issue)                        |
+|------------------------------------------------------------------|---------------------------------------------------------------------|
+| `key`, `hook`, `signpost`, `exposition`, `analogy`, `example`,   | `tangent`, `unsupported-claim`, `dropped-thread`, `filler`,         |
+| `callback`, `definition`, `pivot`, `closing`                     | `abrupt-transition`, `contradiction`                                |
+
+Apply eagerly. False positives are cheaper than false negatives — the
+user can scan and untag, but they can't see what you never flagged.
+
+### 7. End-of-iteration sweep
+
+Before closing, do one retroactive pass:
+
+- For each `concept` with no children, no incoming `references` /
+  `returns_to`, and no takeaway: tag `dropped-thread`.
+- For each `key`-tagged concept with no `supports` edge and no
+  `example`/`analogy`-tagged child: tag `unsupported-claim`.
+
+These are the only retroactive tags. Everything else should already be
+applied at creation.
+
+### 8. Close the iteration
+
+```sh
 speechflow iteration end
 ```
 
-Every write command prints a single JSON object with the new record's
-`id`. **Read the id** and pass it to follow-up commands. Two ID schemes
-coexist: sessions / roots / nodes use **slugs** derived from titles
-(suffixed `-2`, `-3`, … on collision); iterations use opaque **random
-tokens** (`it_<16-hex>`) so the same title can be reused across sessions.
-Never guess either; always read it from the response.
+After this, `ended_at` is set, the timeline is finite, and the Coverage /
+Health panels render against a frozen graph.
 
-## The four node kinds
+### 9. Launch the UI
 
-| Kind        | When                                                              |
-|-------------|-------------------------------------------------------------------|
-| `root_ref`  | The user materially touches one of the declared session roots.    |
-| `concept`   | The user introduces a substantive idea, claim, definition, etc.   |
-| `curiosity` | The user opens a question, hedge, or thread they don't resolve.   |
-| `takeaway`  | Leaf synthesis — what the listener actually walked away with.     |
+```sh
+speechflow serve --open
+```
 
-`concept` is the workhorse. `root_ref` is purely structural — the
-coverage algorithm follows edges back to `root_ref` nodes to decide which
-roots got touched. `curiosity` captures open threads — leave them open
-unless a later concept clearly answers them, then call
-`speechflow node resolve <curiosity-slug> --by <concept-slug>`.
-`takeaway` is one-per-chain synthesis pinned to the chain's leaf and
-optionally to the root it was aiming at (`--root <slug>`); the UI shows
-the intended-root vs. actual-takeaway comparison directly.
+Binds `127.0.0.1:7777` and opens the user's browser to the dashboard.
+The session you just populated will appear; clicking it shows the
+iteration list, and clicking the iteration shows the graph + transcript
+modal + tabbed insights panel (Coverage / Health).
 
-## Tags
+If the user prefers not to auto-open, drop `--open` and tell them to
+visit `http://127.0.0.1:7777/`.
 
-Two have UI meaning: `key` (the user signalled the idea is central; solid
-border) and `tangent` (a digression; dashed border). Set them with
-`--tag key` at creation or `speechflow node tag <slug> tangent` later.
-Other tags (`evidence`, `example`, `definition`, `pivot`) render as
-chips — use them when they fit.
+---
+
+## A complete worked example
+
+User pastes a 2-paragraph speech with three claims and one open question.
+
+```sh
+# 1. Plan: read it. Identify roots = ["Pricing", "Roadmap"].
+# 2. Session + roots
+speechflow session new --title "Q4 review"           # → q4-review
+speechflow root add "Pricing" "Roadmap"
+
+# 3. Iteration + transcript
+ITER=$(speechflow iteration start --title "Eval 1" | jq -r .id)
+speechflow transcript set --file /tmp/speech.txt
+
+# 4. Walk and record (spans computed from the transcript text)
+speechflow node touch-root pricing --span 0,12
+speechflow node add concept \
+    --title "Seat-based pricing next quarter" \
+    --quote "we're moving to seat-based tiers" \
+    --span 38,86 \
+    --tag key \
+    --from touch-pricing
+speechflow node add concept \
+    --title "Existing customers grandfathered" \
+    --quote "existing annuals stay on legacy rate" \
+    --span 90,130 \
+    --tag example \
+    --from seat-based-pricing-next-quarter
+speechflow edge add existing-customers-grandfathered \
+    seat-based-pricing-next-quarter --kind supports
+
+speechflow node add curiosity \
+    --from seat-based-pricing-next-quarter \
+    --title "What about mid-year upgrades?" \
+    --quote "I haven't worked out mid-year upgrade pricing"
+
+# (… continue for the second root …)
+
+# 5. Add a takeaway per chain
+speechflow node add takeaway \
+    --from existing-customers-grandfathered \
+    --root pricing \
+    --title "Pricing shifts to seats but doesn't break existing contracts"
+
+# 6. Sweep, then close
+speechflow node tag unaddressed-roadmap-slip dropped-thread  # if any
+speechflow iteration end
+
+# 7. Show it
+speechflow serve --open
+```
+
+---
 
 ## What you do NOT do
 
-- Do **not** call `speechflow coverage`. The user owns that.
-- Do **not** score the rehearsal in chat ("you did well", "you missed
-  hiring") unless the user explicitly asks for an assessment.
-- Do **not** mutate state via the HTTP API — `/api/v1` is read-only by
-  design. All writes go through the CLI.
-- Do **not** promote a stray topic into a root just because you think it
-  should be covered. If the user didn't declare it, leave it as a
-  concept (optionally tagged `tangent`).
-- Do **not** `transcript set` mid-iteration — it invalidates every
-  previously recorded span. Stick to `transcript append`.
+- Do not call `speechflow coverage` to score the speech in chat. The
+  Health panel exists for that; the user owns the evaluation.
+- Do not invent roots the speaker didn't declare or strongly imply.
+- Do not promote a tangent into a root because it seemed important.
+- Do not `transcript set` again mid-iteration — it invalidates every
+  span you've recorded.
+- Do not mutate via the HTTP API. `/api/v1` is read-only by design.
 
-## Reviewing past sessions
+---
 
-The web UI is the right surface for review. Launch it:
+## Reference
 
-```sh
-speechflow serve --open       # binds 127.0.0.1:7777, opens the browser
-```
+- **Node kinds**: `root_ref` (root anchor) · `concept` (idea) ·
+  `curiosity` (open question) · `takeaway` (chain leaf synthesis).
+- **Edge kinds**: `branches_from` (child → parent, set by `--from`) ·
+  `references` (peer cross-link) · `returns_to` (explicit callback) ·
+  `supports` (evidence → claim) · `contrasts` (steel-man / contradiction).
+- **ID schemes**: sessions / roots / nodes use slugs derived from
+  titles. Iterations use opaque random `it_<16-hex>` tokens. Always read
+  IDs from the JSON output of the call that created them; never
+  construct an iteration ID.
+- **Live UI updates**: while an iteration is active (`ended_at` is null)
+  the UI polls `/api/v1/iterations/:id/graph` every second, so the user
+  can watch the graph build as you record.
 
-It renders each iteration as a React Flow graph, a transcript with span
-highlights, and a coverage matrix across all rehearsals of the session.
-If the user asks "how did I do across rehearsals?" — open the UI.
-
-For programmatic inspection, the read-only HTTP API at
-`http://127.0.0.1:7777/api/v1/...` exposes sessions, iterations, graph,
-timeline, transcript, and coverage. JSON responses are `snake_case`.
-
-## Quick reference
-
-| Goal                              | CLI                                                                       |
-|-----------------------------------|---------------------------------------------------------------------------|
-| Initialise                        | `speechflow init`                                                         |
-| Start a topic                     | `speechflow session new --title "..."`                                    |
-| Resume a topic                    | `speechflow session use <slug>`                                           |
-| Declare intended topics           | `speechflow root add "A" "B" "C"`                                         |
-| Begin a rehearsal                 | `speechflow iteration start [--title "..."]`                              |
-| Append to the transcript          | `speechflow transcript append "..."`                                      |
-| Anchor a declared root            | `speechflow node touch-root <root-slug>`                                  |
-| Add an idea                       | `speechflow node add concept --title "..." [--quote ...] [--span S,E]`    |
-| Add an open question              | `speechflow node add curiosity --from <slug> --title "..."`               |
-| Cap a chain with a synthesis      | `speechflow node add takeaway --from <slug> [--root <slug>] --title "..."` |
-| Connect related nodes             | `speechflow edge add <from> <to> --kind references\|returns_to`           |
-| Resolve an open question          | `speechflow node resolve <slug> --by <node-slug>`                         |
-| Tag a node                        | `speechflow node tag <slug> key`                                          |
-| End the rehearsal                 | `speechflow iteration end`                                                |
-| Open the UI                       | `speechflow serve --open`                                                 |
-
-For exhaustive flag details, run `speechflow <command> --help`. For the
-opinionated contract (when to create what kind of node, how spans work,
-what NOT to do), read `AGENTS.md`.
+For the full opinionated contract — every "when to use this exact
+node/edge/tag", the curiosity resolution rules, the agent's negative
+space — read `AGENTS.md` in the speechflow repo.

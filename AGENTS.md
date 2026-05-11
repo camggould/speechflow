@@ -198,8 +198,10 @@ Most parent-child structure should come from the `--from` flag on
 | `branches_from` | Created automatically by `--from`. Only call `edge add ... --kind branches_from` to reparent or fix data. |
 | `references`    | A node leans on another without descending from it. e.g. concept B cites concept A. Frequent, low-cost.    |
 | `returns_to`    | The speaker explicitly loops back to an earlier idea ("as I was saying about pricing…"). High signal.      |
+| `supports`      | The from-node is evidence / data / a concrete example / an analogy underpinning the to-node's claim. Lets the UI flag claims that have no support as a structural weakness. |
+| `contrasts`     | The from-node contradicts or pushes against the to-node — steel-manning, "but X", or self-contradiction. Render as red dashed.                                              |
 
-`speechflow edge add <from-slug> <to-slug> --kind references|branches_from|returns_to`.
+`speechflow edge add <from-slug> <to-slug> --kind references|branches_from|returns_to|supports|contrasts`.
 
 Edges point in the direction stated in the table — `branches_from` is
 child → parent; `references` and `returns_to` are from the new node to the
@@ -212,29 +214,74 @@ nodes will mark a digression as still on-topic for the right root.
 
 ---
 
-## 4. Tags: `key`, `tangent`, and the rest
+## 4. The canonical tag vocabulary
 
-Tags are free-form, but a few have UI meaning:
+Tags are the agent's primary instrument for annotating speech *quality*.
+The system is deterministic about how it renders them; the agent is the
+judge. The UI's **Speech Health** panel groups nodes by these canonical
+tags into "Strengths" and "Weaknesses" so the user can scan structure at
+a glance.
 
-- **`key`** — the user explicitly framed the node as central. Solid border
-  in the UI. Reserve for moments the user signals "this is the point" or
-  "this is the thesis."
-- **`tangent`** — the agent (or user) recognised the node as a digression.
-  Dashed border in the UI. Tag a concept `tangent` when it isn't traceable
-  to any root *and* the user did not signal a `returns_to`.
-- **`evidence`**, **`example`**, **`definition`**, **`pivot`** — render as
-  chips. Use them when they fit; don't force.
+Apply tags eagerly. False positives are cheaper than false negatives —
+the user can scan the Health panel and untag what doesn't fit, but they
+can't see what you never flagged.
 
-Set tags at creation time with `--tag key` (repeatable) or after the fact
-with `speechflow node tag <node-slug> <tag> [<tag>...]`.
+### Strengths — apply when you recognise the element
 
-Remove tags with `speechflow node untag <node-slug> <tag>`. Use sparingly —
-the audit value of tags comes from them being mostly stable.
+| Tag           | Apply when…                                                                                |
+|---------------|--------------------------------------------------------------------------------------------|
+| `key`         | The speaker explicitly framed the node as central. "The whole point is", "the thesis is".  |
+| `hook`        | Opening (or section-opening) that captures attention before substance. Stories work well.  |
+| `signpost`    | Explicit structure marker. "First… second… third." "Let me cover three things."            |
+| `exposition`  | Background or setup that frames later content. Definitions, history, why-this-matters.     |
+| `analogy`     | Clarifying comparison. "It's like X." Pair with a `supports` edge to the claim it serves.  |
+| `example`     | Concrete instance of a claim. Pair with a `supports` edge to the claim it illustrates.     |
+| `callback`    | Explicit return to earlier material. Usually paired with a `returns_to` edge.              |
+| `definition`  | Defines a term the speaker will reuse.                                                     |
+| `pivot`       | Explicit topic shift. "Onto the second thing —", "moving on —".                            |
+| `closing`     | Final wrap-up statement, often a synthesis (consider a `takeaway` node too).               |
 
-**Negative space on `tangent`:** the README notes the UI flags potential
-tangents structurally (concepts with no path to any `root_ref`). You don't
-have to read those flags. You may tag `tangent` proactively whenever you
-notice one in real time; otherwise, leave it for the user to decide later.
+### Weaknesses — apply when you detect the issue
+
+| Tag                  | Apply when…                                                                                 |
+|----------------------|---------------------------------------------------------------------------------------------|
+| `tangent`            | Concept that doesn't trace back to any declared root and the speaker didn't `returns_to`.   |
+| `unsupported-claim`  | A `key`-tagged concept with no `supports` edge or `example`/`analogy` child.                |
+| `dropped-thread`     | Concept introduced and never returned to. Apply during the end-of-iteration sweep (§4.1).   |
+| `filler`             | Verbosity, padding, repetition that doesn't add a beat. "You know, basically, kinda, um."   |
+| `abrupt-transition`  | Topic shift with no `pivot`, `signpost`, or transitional concept bridging it.               |
+| `contradiction`      | Conflicts with an earlier claim. Pair with a `contrasts` edge from this node to the prior.  |
+
+### Free-form tags
+
+Anything outside these two buckets is permitted but won't appear in the
+Health panel. Use sparingly for talk-specific metadata (`q1-numbers`,
+`technical`, etc.) — not for additional speech-quality categories.
+
+### Set / remove
+
+```
+speechflow node tag <node-slug> <tag> [<tag>...]
+speechflow node untag <node-slug> <tag>
+```
+
+Or at creation time: `--tag <tag>` (repeatable).
+
+### 4.1 End-of-iteration sweep
+
+Before you call `iteration end`, do one pass to catch retroactive
+weaknesses:
+
+1. **`dropped-thread`** — for each `concept` with no outgoing
+   `branches_from`-child edges, no incoming `references` / `returns_to`
+   edges, and no `takeaway` that synthesises it: tag `dropped-thread`.
+   The concept was introduced and abandoned.
+2. **`unsupported-claim`** — for each `concept` tagged `key` that has no
+   outgoing `supports` edge and no `example`/`analogy`-tagged child: tag
+   `unsupported-claim`. A central claim should rest on something.
+
+These are the only retroactive tags. Everything else is applied at the
+moment of node creation, when context is freshest.
 
 ---
 
