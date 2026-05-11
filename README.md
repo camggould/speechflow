@@ -31,6 +31,7 @@ You practice a speech across many **iterations** of the same **session**. Each i
 | `root_ref`   | An in-iteration node that records "I touched root X at time T."                                        | One per (iteration, root_touch); created with `node touch-root`. |
 | `concept`    | An idea or claim you introduced.                                                                       | May carry a quote and tags. |
 | `curiosity`  | An open question or branch the agent (or you) noticed. Branches off a concept; can reference others.   | Can be `resolved_by` a later node. |
+| `takeaway`   | Leaf-of-chain synthesis: what the listener actually walked away with.                                  | Branches from the last concept in a chain. May optionally `--root` to the root it was aiming at, so the UI can render intended vs. actual side-by-side. |
 
 ### Edge kinds
 
@@ -50,7 +51,10 @@ Free-form strings on nodes. Conventional tags: `key`, `tangent`, `evidence`, `ex
 
 - **Location:** `~/.speechflow/speechflow.db` (per-user, SQLite).
 - **State file:** `~/.speechflow/state.json` holds the active session and active iteration so the agent doesn't pass IDs on every call.
-- **IDs:** human-readable slugs derived from titles (`pricing-strategy`; collisions get `-2`, `-3`, …). All identifiers in the CLI are slugs.
+- **IDs:** two schemes coexist.
+  - **Slugs** (sessions, roots, nodes): derived from titles (`pricing-strategy`; collisions get `-2`, `-3`, …).
+  - **Random tokens** (iterations): `it_<16-hex>` — opaque, not derived from the title. Iterations are globally unique in the DB and titles like `"Rehearsal 1"` recur freely across sessions; random IDs side-step what would otherwise be cross-session slug collisions.
+  Read every ID from the JSON response of the call that creates it. Never construct one client-side.
 - **Deletes:** cascading. Deleting an iteration drops its nodes/edges/transcript. Deleting a session drops all its iterations + roots.
 
 ### Schema (SQLite)
@@ -83,12 +87,12 @@ CREATE TABLE iterations (
 CREATE TABLE nodes (
     id                   TEXT PRIMARY KEY,   -- slug, unique within iteration
     iteration_id         TEXT NOT NULL REFERENCES iterations(id) ON DELETE CASCADE,
-    kind                 TEXT NOT NULL CHECK (kind IN ('root_ref','concept','curiosity')),
+    kind                 TEXT NOT NULL CHECK (kind IN ('root_ref','concept','curiosity','takeaway')),
     title                TEXT NOT NULL,
     quote                TEXT,
     transcript_start     INTEGER,             -- char offset into iteration.transcript
     transcript_end       INTEGER,
-    root_id              TEXT REFERENCES roots(id) ON DELETE SET NULL,   -- only for kind=root_ref
+    root_id              TEXT REFERENCES roots(id) ON DELETE SET NULL,   -- root_ref (required) or takeaway (optional, "intended root")
     resolved_by_node_id  TEXT REFERENCES nodes(id) ON DELETE SET NULL,   -- only for kind=curiosity
     source               TEXT NOT NULL DEFAULT 'agent',                  -- 'agent' | 'user'
     created_at           TEXT NOT NULL
@@ -153,6 +157,7 @@ speechflow transcript show
 # Nodes --------------------------------------------------------------------
 speechflow node add concept    --title "..." [--quote "..."] [--tag key] [--span 1240,1380] [--from <slug>]
 speechflow node add curiosity  --title "..." --from <slug> [--refs <slug,slug>] [--quote "..."] [--span 1240,1380]
+speechflow node add takeaway   --title "..." --from <slug> [--root <root-slug>] [--quote "..."]
 speechflow node touch-root     <root-slug> [--span 1240,1380]   # records a root_ref node
 speechflow node resolve        <curiosity-slug> --by <node-slug>
 speechflow node tag            <node-slug> <tag> [<tag>...]
@@ -241,7 +246,7 @@ type Iteration = {
 type Node = {
   id: string;
   iteration_id: string;
-  kind: "root_ref" | "concept" | "curiosity";
+  kind: "root_ref" | "concept" | "curiosity" | "takeaway";
   title: string;
   quote: string | null;
   transcript_start: number | null;
@@ -432,6 +437,7 @@ While conversing with the user, the agent should:
    - For each open question the agent notices: `speechflow node add curiosity --from <concept-slug> --title "..."`.
    - When a later concept resolves a curiosity: `speechflow node resolve <curiosity-slug> --by <concept-slug>`.
    - `speechflow edge add <from> <to> --kind ...` to connect non-parent relationships.
+   - When a chain of concepts wraps up and the listener has a clear synthesis: `speechflow node add takeaway --from <leaf-concept> [--root <intended-root>] --title "..."`. One per coherent chain, not per concept.
 4. **At end:** `speechflow iteration end`.
 5. The agent **never** decides coverage — it just records data. `speechflow coverage` is run by the user or the UI.
 
@@ -442,7 +448,7 @@ All writes return JSON; the agent reads the returned `id` to chain subsequent ca
 ## Conventions
 
 - All timestamps are RFC3339 UTC.
-- All IDs in CLI args and API paths are slugs.
+- IDs in CLI args and API paths are slugs (sessions/roots/nodes) or random `it_<hex>` tokens (iterations). Both are opaque strings to consumers — always read them from the JSON response of the call that created them.
 - The CLI is the **only** way to mutate state. HTTP is read-only.
 - JSON output keys are `snake_case`. The UI maps to camelCase at the boundary.
 - No backwards-compat shims pre-1.0 — schema migrations may be destructive.

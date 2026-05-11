@@ -8,11 +8,12 @@ description: Use speechflow to turn a spoken (or written) practice conversation 
 speechflow is a local CLI (with an embedded web UI) that lets an LLM agent
 record a spoken conversation as a typed graph: **sessions** (a talk you're
 working on), made of **iterations** (one rehearsal each), made of **nodes**
-(`root_ref`, `concept`, `curiosity`) and **edges** (`branches_from`,
-`references`, `returns_to`). The user declares roots up front ("today I
-want to cover pricing, roadmap, hiring"); you record the rest as the
-conversation unfolds. After the fact, the user can replay any iteration
-in the UI and see structural coverage of their declared topics.
+(`root_ref`, `concept`, `curiosity`, `takeaway`) and **edges**
+(`branches_from`, `references`, `returns_to`). The user declares roots up
+front ("today I want to cover pricing, roadmap, hiring"); you record the
+rest as the conversation unfolds. After the fact, the user can replay any
+iteration in the UI and see structural coverage of their declared topics
+plus side-by-side comparison of intended roots vs. actual takeaways.
 
 The CLI is deterministic. **You** do the judgment — what's a concept,
 what's a curiosity, when something is resolved. speechflow just stores it.
@@ -71,23 +72,29 @@ speechflow iteration end
 ```
 
 Every write command prints a single JSON object with the new record's
-`id` (a slug). **Read the id** and pass it to follow-up commands —
-slugs are derived from titles but get suffixed (`-2`, `-3`, …) on
-collision, so never guess them.
+`id`. **Read the id** and pass it to follow-up commands. Two ID schemes
+coexist: sessions / roots / nodes use **slugs** derived from titles
+(suffixed `-2`, `-3`, … on collision); iterations use opaque **random
+tokens** (`it_<16-hex>`) so the same title can be reused across sessions.
+Never guess either; always read it from the response.
 
-## The three node kinds
+## The four node kinds
 
 | Kind        | When                                                              |
 |-------------|-------------------------------------------------------------------|
 | `root_ref`  | The user materially touches one of the declared session roots.    |
 | `concept`   | The user introduces a substantive idea, claim, definition, etc.   |
 | `curiosity` | The user opens a question, hedge, or thread they don't resolve.   |
+| `takeaway`  | Leaf synthesis — what the listener actually walked away with.     |
 
 `concept` is the workhorse. `root_ref` is purely structural — the
 coverage algorithm follows edges back to `root_ref` nodes to decide which
 roots got touched. `curiosity` captures open threads — leave them open
 unless a later concept clearly answers them, then call
 `speechflow node resolve <curiosity-slug> --by <concept-slug>`.
+`takeaway` is one-per-chain synthesis pinned to the chain's leaf and
+optionally to the root it was aiming at (`--root <slug>`); the UI shows
+the intended-root vs. actual-takeaway comparison directly.
 
 ## Tags
 
@@ -139,6 +146,7 @@ timeline, transcript, and coverage. JSON responses are `snake_case`.
 | Anchor a declared root            | `speechflow node touch-root <root-slug>`                                  |
 | Add an idea                       | `speechflow node add concept --title "..." [--quote ...] [--span S,E]`    |
 | Add an open question              | `speechflow node add curiosity --from <slug> --title "..."`               |
+| Cap a chain with a synthesis      | `speechflow node add takeaway --from <slug> [--root <slug>] --title "..."` |
 | Connect related nodes             | `speechflow edge add <from> <to> --kind references\|returns_to`           |
 | Resolve an open question          | `speechflow node resolve <slug> --by <node-slug>`                         |
 | Tag a node                        | `speechflow node tag <slug> key`                                          |

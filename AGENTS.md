@@ -37,7 +37,11 @@ a write command and discard its output, you have nothing to attach to.
    considers roots whose `created_at <= iteration.ended_at`.
 3. Start the iteration: `speechflow iteration start [--title "Rehearsal 3"]`.
    This sets the active iteration and is required before any node or
-   transcript call.
+   transcript call. Iteration IDs are opaque random tokens of the form
+   `it_<16-hex>` — **not** slugs derived from the title. Two iterations
+   titled "Rehearsal 1" in different sessions both succeed and get
+   different IDs. Read the returned `id` from the JSON response and store
+   it; never construct it.
 
 ### 1.2 During the conversation (the per-utterance loop)
 
@@ -92,7 +96,7 @@ gets its own iteration, scored against the same roots.
 
 ## 2. When to create each node kind
 
-There are exactly three node kinds. Pick the right one.
+There are exactly four node kinds. Pick the right one.
 
 ### `root_ref` — "I touched a declared root just now."
 
@@ -149,6 +153,37 @@ flesh out.
 Do NOT use `curiosity` for rhetorical questions the user immediately
 answers themselves — that's a `concept` (the answer), optionally tagged
 `pivot`.
+
+### `takeaway` — "What the listener actually walked away with."
+
+Create with
+`speechflow node add takeaway --from <parent-slug> --title "<synthesis>" [--root <root-slug>] [--quote "..."]`.
+
+A takeaway is a **leaf-of-chain synthesis**. It is the agent's one-sentence
+distillation of what the audience would, in fact, take from a chain of
+concepts — irrespective of whether that matches the root the chain was
+aimed at. Takeaways are how the user later answers: "did I land the point
+I thought I was landing?"
+
+- `--from` is required and should be the last substantive node in the
+  chain — usually the most recent `concept` under the relevant
+  `root_ref`. The takeaway hangs off the tip of the chain.
+- `--root` optionally pins the takeaway to the declared root it was
+  *trying* to land. The UI uses this for the "what you were going for"
+  panel — it surfaces the comparison directly. Set it whenever the chain
+  was structurally anchored to a root.
+- `--quote` is unusual on a takeaway (it's synthesis, not transcript) but
+  permitted when the user themselves voiced the takeaway verbatim.
+- Do NOT create a takeaway after every concept. One per coherent chain is
+  the rule. A chain is "coherent" when the user has moved on — explicitly
+  pivoted to another topic, ended a section, or signalled they're done
+  with that idea.
+- Do NOT create a takeaway if you cannot articulate a synthesis crisper
+  than the chain itself. A weak takeaway is worse than no takeaway.
+
+Use `takeaway` for: chain-of-thought endings, "the point is…" moments the
+user articulates, summary lines, and (most usefully) synthesis the agent
+notices the user didn't quite say out loud but clearly implied.
 
 ---
 
@@ -278,15 +313,22 @@ $ speechflow root add "Pricing" "Roadmap"
  {"id":"roadmap","session_id":"q4-review","title":"Roadmap","created_at":"..."}]
 
 $ speechflow iteration start --title "Rehearsal 1"
-{"id":"rehearsal-1","session_id":"q4-review","title":"Rehearsal 1","started_at":"...","ended_at":null,...}
+{"id":"it_a1b2c3d4e5f67890","session_id":"q4-review","title":"Rehearsal 1","started_at":"...","ended_at":null,...}
 
 $ speechflow node add concept --title "Tiered pricing"
-{"id":"tiered-pricing","iteration_id":"rehearsal-1","kind":"concept",...}
+{"id":"tiered-pricing","iteration_id":"it_a1b2c3d4e5f67890","kind":"concept",...}
 ```
 
-Note that slugs are derived from titles and may be suffixed (`-2`, `-3`,
-…) on collision. **Never assume a slug**; always read it from the
-response. Pass the read slug into the next call's flags.
+Two ID schemes coexist:
+
+- **Slugs** (sessions, roots, nodes): derived from titles, may be suffixed
+  (`-2`, `-3`, …) on collision. Never assume one — read it from the
+  response.
+- **Random tokens** (iterations): `it_<16-hex>`. Always opaque; you can
+  never construct one. Read it from `iteration start` or
+  `iteration list` and store it.
+
+Pass the read ID into the next call's flags.
 
 The CLI exit codes (from the README) are stable:
 - `0` success
@@ -343,7 +385,7 @@ speechflow root add "Pricing" "Roadmap" "Hiring"
 # -> [{"id":"pricing",...},{"id":"roadmap",...},{"id":"hiring",...}]
 
 speechflow iteration start --title "Rehearsal 1"
-# -> {"id":"rehearsal-1",...}
+# -> {"id":"it_a1b2c3d4e5f67890",...}   (random; not derived from title)
 ```
 
 > **User:** "Okay. On pricing — the headline is that we're moving to
@@ -432,6 +474,32 @@ No `--from`, no edges to any `root_ref`. The `tangent` tag signals what
 you noticed; the user can promote it to a root later if they want it
 covered as a real topic.
 
+### Example D — Capping a chain with a takeaway
+
+Continuing the pricing chain from Example A: after the user wraps up
+their pricing thread and starts moving toward roadmap, synthesise what
+the chain actually landed.
+
+> **User:** "…anyway, that's pricing. Onto the roadmap."
+
+```
+speechflow node add takeaway \
+    --from annual-contracts-legacy-flat-rate-through-fy \
+    --root pricing \
+    --title "Pricing shifts to seats next quarter; annuals are grandfathered to end of FY"
+# -> {"id":"pricing-shifts-to-seats-next-quarter-annuals-are-grandfathered-to-end-of-fy",
+#     "kind":"takeaway","root_id":"pricing",...}
+```
+
+The takeaway hangs off the tip of the pricing chain. `--root pricing`
+makes the UI surface the comparison between the declared root ("Pricing")
+and the actual synthesis. If the synthesis materially diverges from the
+root, that's the kind of signal the user came here for.
+
+Use takeaways sparingly — one per coherent chain, only when you can
+articulate a synthesis that is genuinely crisper than the chain itself.
+A weak takeaway is worse than no takeaway.
+
 ---
 
 ## 10. Ending the session
@@ -461,6 +529,7 @@ matrix, they will ask, or open the UI with `speechflow serve --open`.
 | Anchor a declared root                       | `speechflow node touch-root <root-slug> [--span S,E]`                         |
 | Record an idea                               | `speechflow node add concept --title "..." [--quote ...] [--span ...]`        |
 | Record an open question                      | `speechflow node add curiosity --from <slug> --title "..."`                   |
+| Synthesise a chain (leaf)                    | `speechflow node add takeaway --from <slug> [--root <root-slug>] --title "..."` |
 | Mark central / digression                    | `speechflow node tag <slug> key` / `speechflow node tag <slug> tangent`       |
 | Connect non-parent relationships             | `speechflow edge add <from> <to> --kind references\|returns_to`               |
 | Close out a question                         | `speechflow node resolve <curiosity-slug> --by <node-slug>`                   |
