@@ -4,10 +4,26 @@
 package slug
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"unicode"
 )
+
+// Random returns an opaque random identifier with the given prefix.
+// Used for entities whose titles can repeat across scopes (e.g.
+// iterations: "Rehearsal 1" is a perfectly reasonable title for many
+// different sessions). 8 random bytes give 64 bits of entropy — collision
+// after ~5 billion IDs at p=1e-9, more than enough for a single-user tool.
+func Random(prefix string) string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		// crypto/rand only fails on broken systems where we can't recover.
+		panic("slug.Random: crypto/rand failed: " + err.Error())
+	}
+	return prefix + hex.EncodeToString(b)
+}
 
 // Checker reports whether a candidate slug is already taken. Implementations
 // typically wrap a database lookup. Returning true means "this slug exists,

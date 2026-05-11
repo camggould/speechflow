@@ -42,12 +42,12 @@ func newIterationStartCommand() *cobra.Command {
 				existing, _ := s.ListIterations(sess)
 				title = generateIterationTitle(len(existing) + 1)
 			}
-			id, err := slug.Unique(title, func(c string) (bool, error) {
-				return s.SlugExists("iterations", sess, c)
-			})
-			if err != nil {
-				return Exit(ExitGeneric, "%v", err)
-			}
+			// Iterations use random IDs rather than slugs. Titles are not
+			// constrained to be unique within or across sessions ("Rehearsal 1"
+			// happens many times), and the database's PRIMARY KEY on
+			// iterations.id is global, so slug suffixing would still collide
+			// across sessions. Random IDs side-step the whole problem.
+			id := slug.Random("it_")
 			it, err := s.CreateIteration(id, sess, title)
 			if err != nil {
 				return translateStoreErr(err)
