@@ -7,12 +7,62 @@ import {
 } from "@heroui/react";
 import { useGraph, useIteration, useTranscript } from "@/api/query";
 import { useAppStore } from "@/store/app";
-import type { Transcript } from "@/api/types.gen";
+import type { NodeKind, Transcript } from "@/api/types.gen";
 import { NodeDetailContent } from "@/components/NodeDetailContent";
 
 interface TranscriptModalProps {
   iterationId: string;
 }
+
+// Highlight palette per node kind, matched to the graph node colors so a
+// reader can scan the transcript and recognise which kind anchored each
+// span without looking back at the canvas. Saturation is bumped in light
+// mode (so it reads on white) and dropped in dark mode (so it doesn't
+// overpower the surrounding text).
+const KIND_HIGHLIGHT: Record<
+  NodeKind,
+  { base: string; focused: string }
+> = {
+  root_ref: {
+    base:
+      "bg-amber-200 text-amber-900 hover:bg-amber-300 " +
+      "dark:bg-amber-700/70 dark:text-amber-50 dark:hover:bg-amber-600/80",
+    focused:
+      "bg-amber-300 text-amber-950 ring-2 ring-amber-500 " +
+      "dark:bg-amber-500/80 dark:text-amber-50 dark:ring-amber-300",
+  },
+  concept: {
+    base:
+      "bg-blue-200 text-blue-900 hover:bg-blue-300 " +
+      "dark:bg-blue-700/70 dark:text-blue-50 dark:hover:bg-blue-600/80",
+    focused:
+      "bg-blue-300 text-blue-950 ring-2 ring-blue-500 " +
+      "dark:bg-blue-500/80 dark:text-blue-50 dark:ring-blue-300",
+  },
+  curiosity: {
+    base:
+      "bg-purple-200 text-purple-900 hover:bg-purple-300 " +
+      "dark:bg-purple-700/70 dark:text-purple-50 dark:hover:bg-purple-600/80",
+    focused:
+      "bg-purple-300 text-purple-950 ring-2 ring-purple-500 " +
+      "dark:bg-purple-500/80 dark:text-purple-50 dark:ring-purple-300",
+  },
+  takeaway: {
+    base:
+      "bg-emerald-200 text-emerald-900 hover:bg-emerald-300 " +
+      "dark:bg-emerald-700/70 dark:text-emerald-50 dark:hover:bg-emerald-600/80",
+    focused:
+      "bg-emerald-300 text-emerald-950 ring-2 ring-emerald-500 " +
+      "dark:bg-emerald-500/80 dark:text-emerald-50 dark:ring-emerald-300",
+  },
+};
+
+// When a transcript span is covered by nodes of multiple kinds (rare —
+// happens when the agent records overlapping anchors), pick the one most
+// structurally distinctive so the colour is informative. Root anchors win
+// because they're the structural backbone; takeaways are leaf syntheses;
+// curiosities are open questions; concepts are the workhorse default.
+const KIND_PRIORITY: NodeKind[] = ["root_ref", "takeaway", "curiosity", "concept"];
 
 interface Segment {
   start: number;
@@ -65,6 +115,18 @@ export function TranscriptModal({ iterationId }: TranscriptModalProps) {
     [data],
   );
 
+  const nodesById = useMemo(
+    () => new Map((graph.data?.nodes ?? []).map((n) => [n.id, n])),
+    [graph.data],
+  );
+
+  const pickKind = (nodeIds: string[]): NodeKind | null => {
+    for (const kind of KIND_PRIORITY) {
+      if (nodeIds.some((id) => nodesById.get(id)?.kind === kind)) return kind;
+    }
+    return null;
+  };
+
   // Auto-scroll the highlighted span into view when the user clicks a node.
   const highlightRef = useRef<HTMLSpanElement>(null);
   useEffect(() => {
@@ -111,21 +173,22 @@ export function TranscriptModal({ iterationId }: TranscriptModalProps) {
               {data && data.text !== "" && (
                 <div className="leading-relaxed whitespace-pre-wrap text-sm max-h-[70vh] overflow-y-auto pr-2">
                   {segments.map((seg, i) => {
-                    const highlighted =
+                    const focused =
                       focusedNodeId != null && seg.nodeIds.includes(focusedNodeId);
-                    const hasAny = seg.nodeIds.length > 0;
-                    const className = highlighted
-                      ? "bg-warning-200/60 dark:bg-warning-700/40 rounded px-0.5 cursor-pointer"
-                      : hasAny
-                      ? "bg-default-100 dark:bg-default-800/50 cursor-pointer hover:bg-default-200 dark:hover:bg-default-700"
+                    const kind = seg.nodeIds.length > 0 ? pickKind(seg.nodeIds) : null;
+                    const palette = kind ? KIND_HIGHLIGHT[kind] : null;
+                    const className = palette
+                      ? `rounded px-0.5 cursor-pointer transition-colors ${
+                          focused ? palette.focused : palette.base
+                        }`
                       : "";
                     return (
                       <span
                         key={i}
-                        ref={highlighted ? highlightRef : undefined}
+                        ref={focused ? highlightRef : undefined}
                         className={className}
                         onClick={() => {
-                          if (hasAny) focusNode(seg.nodeIds[0]);
+                          if (seg.nodeIds.length > 0) focusNode(seg.nodeIds[0]);
                         }}
                       >
                         {seg.text}

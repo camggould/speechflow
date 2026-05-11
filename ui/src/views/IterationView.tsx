@@ -5,7 +5,7 @@ import { useGraph, useIteration, useSession } from "@/api/query";
 import { useAppStore } from "@/store/app";
 import { IterationListRail } from "@/components/IterationListRail";
 import { GraphCanvas } from "@/components/GraphCanvas";
-import { CoveragePanel } from "@/components/CoveragePanel";
+import { InsightsPanel } from "@/components/InsightsPanel";
 import { TimelineScrubber } from "@/components/TimelineScrubber";
 import { TranscriptModal } from "@/components/TranscriptModal";
 import { NodeDetailModal } from "@/components/NodeDetailModal";
@@ -127,7 +127,7 @@ export function IterationView({ sessionId, iterationId }: IterationViewProps) {
                   />
                 )}
               </div>
-              <CoveragePanel iterationId={iterationId} />
+              <InsightsPanel iterationId={iterationId} />
             </div>
           </>
         )}

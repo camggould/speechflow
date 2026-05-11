@@ -57,6 +57,8 @@ const EDGE_STROKE = {
   branches_from: "#64748b",
   references: "#94a3b8",
   returns_to: "#0891b2",
+  supports: "#059669",
+  contrasts: "#dc2626",
 } as const;
 
 type NodeData = {
@@ -171,7 +173,7 @@ function GraphNode(props: NodeProps) {
             .map((t) => (
               <span
                 key={t}
-                className="text-[9px] px-1 rounded bg-default-200/60 dark:bg-default-700/60"
+                className="text-[9px] px-1 rounded bg-white/80 text-default-700 dark:bg-white/20 dark:text-default-700"
               >
                 {t}
               </span>
@@ -273,7 +275,8 @@ function GraphCanvasInner({
           fromNode.resolved_by_node_id != null;
 
         const stroke = EDGE_STROKE[e.kind];
-        const dashed = e.kind === "references" || isResolveLink;
+        const dashed =
+          e.kind === "references" || e.kind === "contrasts" || isResolveLink;
 
         return {
           id: e.id,

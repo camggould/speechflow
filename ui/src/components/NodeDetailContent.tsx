@@ -13,7 +13,18 @@ import {
 } from "lucide-react";
 import { useCoverage, useTranscript } from "@/api/query";
 import { useAppStore } from "@/store/app";
-import type { Graph, Node } from "@/api/types.gen";
+import type { Graph, Node, NodeKind } from "@/api/types.gen";
+
+// Highlight palette per node kind, mirrors the transcript-modal palette
+// so a quote excerpt's tint matches the colour of the node it belongs to.
+const KIND_MARK: Record<NodeKind, string> = {
+  root_ref: "bg-amber-200 text-amber-900 dark:bg-amber-700/70 dark:text-amber-50",
+  concept: "bg-blue-200 text-blue-900 dark:bg-blue-700/70 dark:text-blue-50",
+  curiosity:
+    "bg-purple-200 text-purple-900 dark:bg-purple-700/70 dark:text-purple-50",
+  takeaway:
+    "bg-emerald-200 text-emerald-900 dark:bg-emerald-700/70 dark:text-emerald-50",
+};
 
 interface NodeDetailContentProps {
   iterationId: string;
@@ -293,7 +304,7 @@ export function NodeDetailContent({
         {excerpt ? (
           <p className="text-sm leading-relaxed text-default-700 dark:text-default-300">
             <span className="text-default-400">{excerpt.before}</span>
-            <mark className="bg-warning-200/60 dark:bg-warning-700/40 text-foreground rounded px-0.5">
+            <mark className={`rounded px-0.5 ${KIND_MARK[node.kind]}`}>
               {excerpt.highlight}
             </mark>
             <span className="text-default-400">{excerpt.after}</span>

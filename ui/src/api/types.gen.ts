@@ -47,7 +47,12 @@ export type Node = {
   created_at: string;
 };
 
-export type EdgeKind = "branches_from" | "references" | "returns_to";
+export type EdgeKind =
+  | "branches_from"
+  | "references"
+  | "returns_to"
+  | "supports"
+  | "contrasts";
 
 export type Edge = {
   id: string;
