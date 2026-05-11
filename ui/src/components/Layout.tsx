@@ -34,7 +34,7 @@ export function Layout({ children }: LayoutProps) {
   };
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="h-screen flex flex-col overflow-hidden">
       <Navbar isBordered maxWidth="full">
         <NavbarBrand>
           <Link href={ROUTES.dashboard} className="flex items-center gap-2 font-bold text-lg">
@@ -58,7 +58,7 @@ export function Layout({ children }: LayoutProps) {
         </NavbarContent>
       </Navbar>
 
-      <main className="flex-1 overflow-hidden">{children}</main>
+      <main className="flex-1 min-h-0 overflow-hidden">{children}</main>
     </div>
   );
 }

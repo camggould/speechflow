@@ -6,11 +6,19 @@ import { useAppStore, type PlaybackSpeed } from "@/store/app";
 interface TimelineScrubberProps {
   startedAt: string;
   endedAt: string | null;
+  // Latest event timestamp in the iteration (max of node/edge created_at).
+  // Used to derive the scrub upper bound when the iteration is still active.
+  latestEventAt: string | null;
 }
 
 const SPEEDS: PlaybackSpeed[] = [0.5, 1, 2, 4];
+const MIN_WINDOW_MS = 5000;
 
-export function TimelineScrubber({ startedAt, endedAt }: TimelineScrubberProps) {
+export function TimelineScrubber({
+  startedAt,
+  endedAt,
+  latestEventAt,
+}: TimelineScrubberProps) {
   const cursor = useAppStore((s) => s.playback.cursor);
   const playing = useAppStore((s) => s.playback.playing);
   const speed = useAppStore((s) => s.playback.speed);
@@ -19,14 +27,21 @@ export function TimelineScrubber({ startedAt, endedAt }: TimelineScrubberProps) 
   const setSpeed = useAppStore((s) => s.setSpeed);
 
   const startMs = new Date(startedAt).getTime();
-  const endMs = endedAt
+  // Upper bound: when the iteration has ended, use ended_at. Otherwise use
+  // the latest event timestamp with a 1s tail so the playhead can settle at
+  // the end. Always enforce a 5s minimum window so the slider is usable
+  // even when the iteration is empty.
+  const rawEndMs = endedAt
     ? new Date(endedAt).getTime()
-    : Math.max(startMs + 1000, new Date(cursor).getTime() + 1000);
+    : latestEventAt
+    ? new Date(latestEventAt).getTime() + 1000
+    : startMs + MIN_WINDOW_MS;
+  const endMs = Math.max(startMs + MIN_WINDOW_MS, rawEndMs);
   const cursorMs = Math.min(Math.max(new Date(cursor).getTime(), startMs), endMs);
 
   // requestAnimationFrame loop drives the cursor forward at `speed`. Reads
-  // the current cursor through the store inside `tick` so we don't have to
-  // restart the RAF on every cursor mutation (which would lose dt).
+  // the live cursor from the store inside `tick` so we don't have to restart
+  // RAF on every cursor mutation.
   const rafRef = useRef<number | null>(null);
   useEffect(() => {
     if (!playing) {
@@ -60,13 +75,24 @@ export function TimelineScrubber({ startedAt, endedAt }: TimelineScrubberProps) 
     };
   }, [playing, speed, endMs, setCursor, setPlaying]);
 
+  const handlePlay = () => {
+    // If we're at the end, restart from the beginning on play.
+    if (!playing && cursorMs >= endMs - 50) {
+      setCursor(new Date(startMs).toISOString());
+    }
+    setPlaying(!playing);
+  };
+
+  const elapsedMs = cursorMs - startMs;
+  const totalMs = endMs - startMs;
+
   return (
     <div className="flex items-center gap-3 flex-1 min-w-0">
       <Button
         isIconOnly
         variant="flat"
         size="sm"
-        onPress={() => setPlaying(!playing)}
+        onPress={handlePlay}
         aria-label={playing ? "Pause" : "Play"}
       >
         {playing ? <Pause size={14} /> : <Play size={14} />}
@@ -84,6 +110,9 @@ export function TimelineScrubber({ startedAt, endedAt }: TimelineScrubberProps) 
         aria-label="Timeline"
         className="flex-1"
       />
+      <div className="text-[10px] tabular-nums text-default-500 w-16 text-right">
+        {(elapsedMs / 1000).toFixed(1)}s / {(totalMs / 1000).toFixed(1)}s
+      </div>
       <div className="flex items-center gap-1">
         {SPEEDS.map((s) => (
           <Button

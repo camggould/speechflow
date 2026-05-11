@@ -30,7 +30,7 @@ export type Iteration = {
   coverage_pct: number;
 };
 
-export type NodeKind = "root_ref" | "concept" | "curiosity";
+export type NodeKind = "root_ref" | "concept" | "curiosity" | "takeaway";
 
 export type Node = {
   id: string;
