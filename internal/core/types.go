@@ -16,6 +16,10 @@ const (
 	NodeKindConcept NodeKind = "concept"
 	// NodeKindCuriosity is an open question or branch the agent (or user) noticed.
 	NodeKindCuriosity NodeKind = "curiosity"
+	// NodeKindTakeaway is a leaf-of-chain synthesis: what the agent
+	// concludes the listener actually walked away with, vs. the declared
+	// root they were aiming to land. Always optionally pinned to a root_id.
+	NodeKindTakeaway NodeKind = "takeaway"
 )
 
 // EdgeKind enumerates the three kinds of directed relationships between nodes.

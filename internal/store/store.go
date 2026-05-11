@@ -61,8 +61,19 @@ func (s *Store) Close() error { return s.db.Close() }
 // that need to compose their own queries.
 func (s *Store) DB() *sql.DB { return s.db }
 
-// migrate applies every embedded migration file in lexical order.
+// migrate applies pending embedded migration files in lexical order. A
+// `schema_migrations` table tracks applied files so a migration runs at
+// most once per database, even though the runner is invoked on every Open.
 func (s *Store) migrate() error {
+	if _, err := s.db.Exec(
+		`CREATE TABLE IF NOT EXISTS schema_migrations (
+		    name        TEXT PRIMARY KEY,
+		    applied_at  TEXT NOT NULL
+		 )`,
+	); err != nil {
+		return fmt.Errorf("store: ensure schema_migrations: %w", err)
+	}
+
 	entries, err := fs.ReadDir(migrationFS, "migrations")
 	if err != nil {
 		return fmt.Errorf("store: read migrations: %w", err)
@@ -74,13 +85,31 @@ func (s *Store) migrate() error {
 		}
 	}
 	sort.Strings(names)
+
 	for _, name := range names {
+		var dummy int
+		err := s.db.QueryRow(
+			`SELECT 1 FROM schema_migrations WHERE name = ?`, name,
+		).Scan(&dummy)
+		if err == nil {
+			continue // already applied
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("store: check migration %s: %w", name, err)
+		}
+
 		data, err := migrationFS.ReadFile("migrations/" + name)
 		if err != nil {
 			return fmt.Errorf("store: read migration %s: %w", name, err)
 		}
 		if _, err := s.db.Exec(string(data)); err != nil {
 			return fmt.Errorf("store: apply migration %s: %w", name, err)
+		}
+		if _, err := s.db.Exec(
+			`INSERT INTO schema_migrations(name, applied_at) VALUES(?, ?)`,
+			name, rfc3339(nowUTC()),
+		); err != nil {
+			return fmt.Errorf("store: record migration %s: %w", name, err)
 		}
 	}
 	return nil

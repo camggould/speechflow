@@ -49,25 +49,39 @@ func parseSpan(span string) (*int, *int, error) {
 
 func newNodeAddCommand() *cobra.Command {
 	var (
-		title, quote, span, from string
-		tags                     []string
-		refs                     []string
+		title, quote, span, from, rootArg string
+		tags                              []string
+		refs                              []string
 	)
 	cmd := &cobra.Command{
 		Use:   "add <kind>",
-		Short: "Add a concept or curiosity node",
-		Long:  "Add a node of kind 'concept' or 'curiosity'. Use `node touch-root` for root_ref nodes.",
-		Args:  cobra.ExactArgs(1),
+		Short: "Add a concept, curiosity, or takeaway node",
+		Long: `Add a node of kind 'concept', 'curiosity', or 'takeaway'.
+Use ` + "`node touch-root`" + ` for root_ref nodes.
+
+Takeaway nodes are leaf-of-chain syntheses — what the agent concludes
+the listener actually walked away with. They require --from (the last
+concept in the chain) and may optionally use --root to associate the
+takeaway with the root it was supposed to land.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			kind := core.NodeKind(args[0])
-			if kind != core.NodeKindConcept && kind != core.NodeKindCuriosity {
-				return Exit(ExitUsage, "kind must be 'concept' or 'curiosity'")
+			if kind != core.NodeKindConcept &&
+				kind != core.NodeKindCuriosity &&
+				kind != core.NodeKindTakeaway {
+				return Exit(ExitUsage, "kind must be 'concept', 'curiosity', or 'takeaway'")
 			}
 			if title == "" {
 				return Exit(ExitUsage, "--title is required")
 			}
 			if kind == core.NodeKindCuriosity && from == "" {
 				return Exit(ExitUsage, "curiosity nodes require --from <slug>")
+			}
+			if kind == core.NodeKindTakeaway && from == "" {
+				return Exit(ExitUsage, "takeaway nodes require --from <slug>")
+			}
+			if rootArg != "" && kind != core.NodeKindTakeaway {
+				return Exit(ExitUsage, "--root is only valid for takeaway nodes")
 			}
 			iter, err := activeIteration()
 			if err != nil {
@@ -103,6 +117,15 @@ func newNodeAddCommand() *cobra.Command {
 			}
 			if quote != "" {
 				in.Quote = &quote
+			}
+			if rootArg != "" {
+				// Validate root exists in the active session before linking.
+				root, err := s.GetRoot(rootArg)
+				if err != nil {
+					return translateStoreErr(err)
+				}
+				rid := root.ID
+				in.RootID = &rid
 			}
 			node, err := s.CreateNode(in)
 			if err != nil {
@@ -141,6 +164,7 @@ func newNodeAddCommand() *cobra.Command {
 	cmd.Flags().StringVar(&from, "from", "", "Parent node slug (creates branches_from edge)")
 	cmd.Flags().StringSliceVar(&tags, "tag", nil, "Tag(s) to apply (repeatable or comma-separated)")
 	cmd.Flags().StringSliceVar(&refs, "refs", nil, "Other node slug(s) this node references")
+	cmd.Flags().StringVar(&rootArg, "root", "", "Root slug to associate (takeaway nodes only)")
 	return cmd
 }
 

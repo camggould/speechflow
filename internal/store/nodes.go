@@ -26,13 +26,14 @@ type NodeInput struct {
 // CreateNode inserts a node and (optionally) its tags. Returns the new row
 // with tags populated. Validates kind-specific constraints:
 //   - kind=root_ref must carry root_id
-//   - root_id may only be set when kind=root_ref
+//   - root_id is optional on takeaway (associates a takeaway with the root
+//     it was supposed to land on) and forbidden on concept/curiosity
 func (s *Store) CreateNode(in NodeInput) (*core.Node, error) {
 	if in.Kind == core.NodeKindRootRef && (in.RootID == nil || *in.RootID == "") {
 		return nil, fmt.Errorf("%w: root_ref node requires root_id", ErrConstraint)
 	}
-	if in.Kind != core.NodeKindRootRef && in.RootID != nil {
-		return nil, fmt.Errorf("%w: root_id only allowed on root_ref nodes", ErrConstraint)
+	if in.Kind != core.NodeKindRootRef && in.Kind != core.NodeKindTakeaway && in.RootID != nil {
+		return nil, fmt.Errorf("%w: root_id only allowed on root_ref or takeaway nodes", ErrConstraint)
 	}
 	if in.Source == "" {
 		in.Source = core.SourceAgent
