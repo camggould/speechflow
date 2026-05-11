@@ -479,4 +479,4 @@ All writes return JSON; the agent reads the returned `id` to chain subsequent ca
 
 ## License
 
-TBD — local-use tooling for now (mirrors dtree).
+MIT
