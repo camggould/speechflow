@@ -32,6 +32,13 @@ const (
 	EdgeReferences EdgeKind = "references"
 	// EdgeReturnsTo: the speaker explicitly looped back to an earlier idea.
 	EdgeReturnsTo EdgeKind = "returns_to"
+	// EdgeSupports: the from-node is evidence / example / analogy that
+	// underpins the to-node's claim. Lets the UI flag "key claims without
+	// supporting nodes" as a structural weakness.
+	EdgeSupports EdgeKind = "supports"
+	// EdgeContrasts: the from-node explicitly contradicts or pushes against
+	// the to-node. Used for steel-manning moments and self-contradiction.
+	EdgeContrasts EdgeKind = "contrasts"
 )
 
 // NodeSource describes who created a node.

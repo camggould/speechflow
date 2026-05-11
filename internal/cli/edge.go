@@ -26,9 +26,10 @@ func newEdgeAddCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			k := core.EdgeKind(kind)
 			switch k {
-			case core.EdgeBranchesFrom, core.EdgeReferences, core.EdgeReturnsTo:
+			case core.EdgeBranchesFrom, core.EdgeReferences, core.EdgeReturnsTo,
+				core.EdgeSupports, core.EdgeContrasts:
 			default:
-				return Exit(ExitUsage, "--kind must be one of branches_from|references|returns_to")
+				return Exit(ExitUsage, "--kind must be one of branches_from|references|returns_to|supports|contrasts")
 			}
 			iter, err := activeIteration()
 			if err != nil {
@@ -50,7 +51,7 @@ func newEdgeAddCommand() *cobra.Command {
 			return emit(cmd, e)
 		},
 	}
-	cmd.Flags().StringVar(&kind, "kind", "", "Edge kind: branches_from|references|returns_to")
+	cmd.Flags().StringVar(&kind, "kind", "", "Edge kind: branches_from|references|returns_to|supports|contrasts")
 	return cmd
 }
 
